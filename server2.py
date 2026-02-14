@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import os
 
@@ -8,6 +8,10 @@ CORS(app)
 players = {}
 current_power = None
 
+# 🔐 Password from Render Environment (not visible on GitHub)
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
+SESSION_TOKEN = "RK_ADMIN_LOGGED_IN"
+
 
 # 🟢 Server Check
 @app.route("/")
@@ -15,7 +19,20 @@ def home():
     return "POWER SERVER RUNNING"
 
 
-# 🔥 ADMIN PANEL (HTML + JS inside Python)
+# 🔐 LOGIN API (one time)
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.json
+
+    if data.get("password") != ADMIN_PASSWORD:
+        return jsonify({"error": "wrong password"}), 403
+
+    res = make_response({"status": "ok"})
+    res.set_cookie("session", SESSION_TOKEN, max_age=86400)  # 1 day
+    return res
+
+
+# 🔥 ADMIN PANEL (same UI + login added)
 @app.route("/admin")
 def admin():
     return """
@@ -30,43 +47,76 @@ def admin():
 
 <h2>🔥 POWER CONTROL PANEL</h2>
 
-<div id="buttons">Loading players...</div>
-<p id="status"></p>
+<div id="loginBox">
+  <input id="pass" type="password" placeholder="Enter Password">
+  <button onclick="login()">Login</button>
+</div>
+
+<div id="panel" style="display:none">
+  <div id="buttons">Loading players...</div>
+  <p id="status"></p>
+</div>
 
 <script>
+
+function getCookie(name){
+  return document.cookie.split('; ')
+    .find(row => row.startsWith(name+'='))
+    ?.split('=')[1];
+}
+
+// auto login if already authenticated
+if(getCookie("session")==="RK_ADMIN_LOGGED_IN"){
+  openPanel();
+}
+
+function login(){
+  fetch("/login",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      password: document.getElementById("pass").value
+    })
+  }).then(r=>{
+    if(r.ok) openPanel();
+    else alert("Wrong password");
+  });
+}
+
+function openPanel(){
+  document.getElementById("loginBox").style.display="none";
+  document.getElementById("panel").style.display="block";
+  loadPlayers();
+  setInterval(loadPlayers, 3000);
+}
+
 async function loadPlayers() {
-  try {
-    const res = await fetch("/players");
-    const players = await res.json();
+  const res = await fetch("/players");
+  const players = await res.json();
 
-    const container = document.getElementById("buttons");
-    container.innerHTML = "";
+  const container = document.getElementById("buttons");
+  container.innerHTML = "";
 
-    const ids = Object.keys(players);
+  const ids = Object.keys(players);
 
-    if (ids.length === 0) {
-      container.innerText = "No players registered yet";
-      return;
-    }
-
-    ids.forEach(id => {
-      const name = players[id];
-
-      const btn = document.createElement("button");
-      btn.innerText = `${name} (${id}) POWER`;
-      btn.style.display = "block";
-      btn.style.margin = "10px 0";
-      btn.style.padding = "10px";
-      btn.style.fontSize = "16px";
-
-      btn.onclick = () => givePower(id);
-      container.appendChild(btn);
-    });
-
-  } catch (e) {
-    document.getElementById("buttons").innerText =
-      "❌ Server not reachable";
+  if (ids.length === 0) {
+    container.innerText = "No players registered yet";
+    return;
   }
+
+  ids.forEach(id => {
+    const name = players[id];
+
+    const btn = document.createElement("button");
+    btn.innerText = `${name} (${id}) POWER`;
+    btn.style.display = "block";
+    btn.style.margin = "10px 0";
+    btn.style.padding = "10px";
+    btn.style.fontSize = "16px";
+
+    btn.onclick = () => givePower(id);
+    container.appendChild(btn);
+  });
 }
 
 function givePower(playerId) {
@@ -83,13 +133,16 @@ function givePower(playerId) {
   });
 }
 
-loadPlayers();
-setInterval(loadPlayers, 3000);
 </script>
 
 </body>
 </html>
 """
+
+
+# 🔐 Session check
+def is_logged_in():
+    return request.cookies.get("session") == SESSION_TOKEN
 
 
 # 🔹 Unity → Register Player
@@ -108,18 +161,25 @@ def register_player():
     return jsonify({"status": "registered"})
 
 
-# 🔹 Admin → List Players
+# 🔹 Admin → List Players (protected)
 @app.route("/players")
 def get_players():
+    if not is_logged_in():
+        return jsonify({"error": "unauthorized"}), 403
     return jsonify(players)
 
 
-# 🔹 Admin → Give Power
+# 🔹 Admin → Give Power (protected)
 @app.route("/give_power", methods=["POST"])
 def give_power():
     global current_power
+
+    if not is_logged_in():
+        return jsonify({"error": "unauthorized"}), 403
+
     current_power = request.json
     print("POWER RECEIVED:", current_power)
+
     return jsonify({"status": "power_set"})
 
 
