@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import os
+import time
+power_requests = {}
 
 app = Flask(__name__)
 CORS(app)
@@ -91,13 +93,14 @@ function openPanel(){
 }
 
 async function loadPlayers() {
-  const res = await fetch("/players");
-  const players = await res.json();
+
+  const res = await fetch("/players_full");
+  const data = await res.json();
 
   const container = document.getElementById("buttons");
   container.innerHTML = "";
 
-  const ids = Object.keys(players);
+  const ids = Object.keys(data);
 
   if (ids.length === 0) {
     container.innerText = "No players registered yet";
@@ -105,17 +108,28 @@ async function loadPlayers() {
   }
 
   ids.forEach(id => {
-    const name = players[id];
+
+    const player = data[id];
 
     const btn = document.createElement("button");
-    btn.innerText = `${name} (${id}) POWER`;
+
+    let label = player.name + " (" + id + ")";
+
+    if(player.power){
+      label += " ⚡POWER";
+    }
+
+    btn.innerText = label;
+
     btn.style.display = "block";
     btn.style.margin = "10px 0";
     btn.style.padding = "10px";
     btn.style.fontSize = "16px";
 
     btn.onclick = () => givePower(id);
+
     container.appendChild(btn);
+
   });
 }
 
@@ -161,12 +175,44 @@ def register_player():
     return jsonify({"status": "registered"})
 
 
+@app.route("/request_power", methods=["POST"])
+def request_power():
+
+    data = request.json
+    pid = data.get("playerId")
+
+    if pid not in players:
+        return jsonify({"error": "player not registered"}), 400
+
+    power_requests[pid] = True
+
+    print("POWER REQUEST:", pid)
+
+    return jsonify({"status": "power_requested"})
+
 # 🔹 Admin → List Players (protected)
 @app.route("/players")
 def get_players():
     if not is_logged_in():
         return jsonify({"error": "unauthorized"}), 403
     return jsonify(players)
+
+@app.route("/players_full")
+def players_full():
+
+    if not is_logged_in():
+        return jsonify({"error": "unauthorized"}), 403
+
+    result = {}
+
+    for pid, name in players.items():
+
+        result[pid] = {
+            "name": name,
+            "power": power_requests.get(pid, False)
+        }
+
+    return jsonify(result)
 
 
 # 🔹 Admin → Give Power (protected)
@@ -209,3 +255,4 @@ def reset_round():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
