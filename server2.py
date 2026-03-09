@@ -1,39 +1,7 @@
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import os
-import time
-import pytchat
-import threading
-VIDEO_ID ="iwvRNaR6hhM"
-power_requests = {}
 
-def read_chat():
-
-    try:
-
-        chat = pytchat.create(video_id=VIDEO_ID)
-
-        while chat.is_alive():
-
-            for c in chat.get().sync_items():
-
-                username = c.author.channelId
-                message = c.message.lower().strip()
-
-                if message == "power" and username in players:
-
-                    # prevent duplicate spam
-                    if not power_requests.get(username):
-
-                        power_requests[username] = True
-
-                        print("⚡ POWER REQUEST:", username)
-
-            time.sleep(1)
-
-    except Exception as e:
-
-        print("CHAT ERROR:", e)
 app = Flask(__name__)
 CORS(app)
 
@@ -123,14 +91,13 @@ function openPanel(){
 }
 
 async function loadPlayers() {
-
-  const res = await fetch("/players_full");
-  const data = await res.json();
+  const res = await fetch("/players");
+  const players = await res.json();
 
   const container = document.getElementById("buttons");
   container.innerHTML = "";
 
-  const ids = Object.keys(data);
+  const ids = Object.keys(players);
 
   if (ids.length === 0) {
     container.innerText = "No players registered yet";
@@ -138,28 +105,17 @@ async function loadPlayers() {
   }
 
   ids.forEach(id => {
-
-    const player = data[id];
+    const name = players[id];
 
     const btn = document.createElement("button");
-
-    let label = player.name;
-
-    if(player.power){
-      label += " ⚡POWER";
-    }
-
-    btn.innerText = label;
-
+    btn.innerText = `${name} (${id}) POWER`;
     btn.style.display = "block";
     btn.style.margin = "10px 0";
     btn.style.padding = "10px";
     btn.style.fontSize = "16px";
 
     btn.onclick = () => givePower(id);
-
     container.appendChild(btn);
-
   });
 }
 
@@ -205,44 +161,12 @@ def register_player():
     return jsonify({"status": "registered"})
 
 
-@app.route("/request_power", methods=["POST"])
-def request_power():
-
-    data = request.json
-    pid = data.get("playerId")
-
-    if pid not in players:
-        return jsonify({"error": "player not registered"}), 400
-
-    power_requests[pid] = True
-
-    print("POWER REQUEST:", pid)
-
-    return jsonify({"status": "power_requested"})
-
 # 🔹 Admin → List Players (protected)
 @app.route("/players")
 def get_players():
     if not is_logged_in():
         return jsonify({"error": "unauthorized"}), 403
     return jsonify(players)
-
-@app.route("/players_full")
-def players_full():
-
-    if not is_logged_in():
-        return jsonify({"error": "unauthorized"}), 403
-
-    result = {}
-
-    for pid, name in players.items():
-
-        result[pid] = {
-            "name": name,
-            "power": power_requests.get(pid, False)
-        }
-
-    return jsonify(result)
 
 
 # 🔹 Admin → Give Power (protected)
@@ -253,14 +177,7 @@ def give_power():
     if not is_logged_in():
         return jsonify({"error": "unauthorized"}), 403
 
-    data = request.json
-    pid = data.get("playerId")
-
-    current_power = data
-
-    # remove power indicator after use
-    power_requests.pop(pid, None)
-
+    current_power = request.json
     print("POWER RECEIVED:", current_power)
 
     return jsonify({"status": "power_set"})
@@ -290,9 +207,5 @@ def reset_round():
 
 # 🟢 Local run
 if __name__ == "__main__":
-    threading.Thread(target=read_chat, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-
-
