@@ -2,8 +2,38 @@ from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import os
 import time
+import pytchat
+import threading
+VIDEO_ID ="iwvRNaR6hhM"
 power_requests = {}
 
+def read_chat():
+
+    try:
+
+        chat = pytchat.create(video_id=VIDEO_ID)
+
+        while chat.is_alive():
+
+            for c in chat.get().sync_items():
+
+                username = c.author.channelId
+                message = c.message.lower().strip()
+
+                if message == "power" and username in players:
+
+                    # prevent duplicate spam
+                    if not power_requests.get(username):
+
+                        power_requests[username] = True
+
+                        print("⚡ POWER REQUEST:", username)
+
+            time.sleep(1)
+
+    except Exception as e:
+
+        print("CHAT ERROR:", e)
 app = Flask(__name__)
 CORS(app)
 
@@ -113,7 +143,7 @@ async function loadPlayers() {
 
     const btn = document.createElement("button");
 
-    let label = player.name + " (" + id + ")";
+    let label = player.name;
 
     if(player.power){
       label += " ⚡POWER";
@@ -260,7 +290,9 @@ def reset_round():
 
 # 🟢 Local run
 if __name__ == "__main__":
+    threading.Thread(target=read_chat, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
