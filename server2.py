@@ -223,7 +223,14 @@ def give_power():
     if not is_logged_in():
         return jsonify({"error": "unauthorized"}), 403
 
-    current_power = request.json
+    data = request.json
+    pid = data.get("playerId")
+
+    current_power = data
+
+    # remove power indicator after use
+    power_requests.pop(pid, None)
+
     print("POWER RECEIVED:", current_power)
 
     return jsonify({"status": "power_set"})
@@ -255,4 +262,5 @@ def reset_round():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
